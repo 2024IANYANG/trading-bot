@@ -1,0 +1,77 @@
+import ccxt
+import pandas as pd
+import pandas_ta as ta
+import time
+
+# Replace with your exchange's API key and secret
+api_key = 'YOUR_API_KEY'
+api_secret = 'YOUR_API_SECRET'
+
+# Initialize the exchange
+exchange = ccxt.binance({
+    'apiKey': api_key,
+    'secret': api_secret,
+    'enableRateLimit': True,
+})
+
+# Define your trading parameters
+symbol = 'BTC/USDT'
+timeframe = '1h'
+rsi_period = 14
+kdj_period = 14
+macd_fast_period = 12
+macd_slow_period = 26
+macd_signal_period = 9
+trade_amount = 0.001  # Amount of BTC to trade
+rsi_overbought = 70
+rsi_oversold = 30
+
+# Function to fetch OHLCV data
+def fetch_ohlcv(symbol, timeframe, limit=100):
+    ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+    data = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+    data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms')
+    data.set_index('timestamp', inplace=True)
+    return data
+
+# Function to calculate indicators
+def calculate_indicators(df):
+    df['rsi'] = ta.rsi(df['close'], length=rsi_period)
+    df['kdj'] = ta.stoch(df['high'], df['low'], df['close'], kdj_period)
+    df['macd'], df['macd_signal'], df['macd_hist'] = ta.macd(df['close'], fast=macd_fast_period, slow=macd_slow_period, signal=macd_signal_period)
+    return df
+
+# Function to determine the trading signal
+def get_signal(df):
+    if df['rsi'].iloc[-1] < rsi_oversold and df['kdj']['K_14_3_3'].iloc[-1] < 20 and df['macd'].iloc[-1] > df['macd_signal'].iloc[-1]:
+        return 'buy'
+    elif df['rsi'].iloc[-1] > rsi_overbought and df['kdj']['K_14_3_3'].iloc[-1] > 80 and df['macd'].iloc[-1] < df['macd_signal'].iloc[-1]:
+        return 'sell'
+    else:
+        return 'hold'
+
+# Function to place an order
+def place_order(symbol, side, amount):
+    try:
+        order = exchange.create_order(symbol, 'market', side, amount)
+        print(f"Order placed: {order}")
+    except Exception as e:
+        print(f"Error placing order: {e}")
+
+# Main loop
+while True:
+    df = fetch_ohlcv(symbol, timeframe)
+    df = calculate_indicators(df)
+    signal = get_signal(df)
+    
+    if signal == 'buy':
+        print("Buy signal detected")
+        place_order(symbol, 'buy', trade_amount)
+    elif signal == 'sell':
+        print("Sell signal detected")
+        place_order(symbol, 'sell', trade_amount)
+    else:
+        print("No trading signal")
+
+    # Sleep for the duration of the timeframe
+    time.sleep(exchange.parse_timeframe(timeframe) * 60)
